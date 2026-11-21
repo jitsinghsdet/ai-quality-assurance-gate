@@ -1,72 +1,244 @@
-# AI Summary Release Gate
+# AI Quality Assurance Release Gate
 
-A small, local-only demonstration of a release gate for an AI-assisted support-ticket summary feature. The dashboard uses synthetic ticket data; Playwright intercepts the service boundary, so no AI provider, credentials, network service, or paid account is needed.
+A small QA project built to demonstrate how I would validate an AI-generated support-ticket summary before allowing a user to approve it.
 
-## Requirements
+The application generates a summary from synthetic ticket data and checks whether the response meets basic quality requirements. It combines deterministic evaluation rules, React, TypeScript, Vitest, Playwright and GitHub Actions.
 
-- Node.js 20+
+The AI service is mocked, so the project runs locally without an API key, external AI provider or paid service.
+
+## Tech Stack
+
+- React and TypeScript
+- Vite
+- Vitest for unit testing
+- Playwright for browser automation
+- GitHub Actions for CI
+- Deterministic structural and semantic evaluation rules
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20.19+ or 22.12+
 - npm
-- Chromium (installed by the browser setup command below)
+- Git
 
-## Setup and passing run
+### Installation
+
+Clone the repository:
 
 ```bash
-npm install
-npx playwright install chromium
-npm test
+git clone https://github.com/jitsinghsdet/ai-quality-assurance-gate.git
+cd ai-quality-assurance-gate
 ```
 
-`npm test` runs deterministic evaluation tests, followed by the Playwright browser suite. To run each stage:
+Install dependencies and the Playwright browser:
 
 ```bash
-npm run test:unit
-npm run build
-npm run test:e2e
+npm ci
+npx playwright install chromium
+```
+
+### Run the application
+
+```bash
 npm run dev
 ```
 
-Open the local Vite URL printed by `npm run dev`.
+Open the local URL printed in the terminal.
 
-## Design and test boundary
+## Running the Tests
 
-- **UI / browser contract:** Playwright verifies the user-visible states, retry interaction, and whether approval is enabled. Each test owns its own browser context and installs its own route handler; no shared mutable test server or ticket state is used. `fullyParallel` is enabled.
-- **Service boundary:** Tests intercept `POST /api/tickets/T-100/summary` and return deterministic success, insufficient-information, 503, or deliberately invalid payloads. This isolates UI behavior from provider availability.
-- **Summary evaluation:** `evaluateSummary` is a pure deterministic function. It requires non-empty wording, at least one citation, all citations to belong to the current ticket, and rejects email/phone-like contact data. The same validation is applied before enabling approval in the UI.
-- **What is not tested here:** The suite does not prove that an LLM's summary is factually correct, complete, unbiased, or semantically entailed by its cited messages. Those require a separate evaluation layer and representative model outputs.
+Run the unit tests:
 
-## Release-blocking criteria
+```bash
+npm run test:unit
+```
 
-The GitHub Actions `quality-gate` job is required to pass before merge/release:
+Run the production build:
 
-1. Unit evaluation tests pass.
-2. TypeScript production build succeeds.
-3. All Playwright release scenarios pass.
+```bash
+npm run build
+```
 
-Any failure blocks the job. CI retries Playwright once to reduce transient infrastructure noise, but a persistent failure still fails the job. Browser traces, screenshots, video (on failure), and the HTML report are uploaded even after failure for 14 days. Configure branch protection to require the **Unit, build and browser release gate** status check.
+Run the Playwright browser tests:
 
-## Intentional regression exercise
+```bash
+npm run test:e2e
+```
 
-To demonstrate that the gate catches a defect:
+Run the complete test suite:
 
-1. Open `src/summaryRules.ts`.
-2. Temporarily change `if (ids.length === 0)` to `if (ids.length < 0)`.
-3. Run `npm run test:unit`. The missing-citation evaluation test fails.
-4. Restore the original condition and run `npm test` to confirm the passing state.
+```bash
+npm test
+```
 
-For a UI-only regression, temporarily change `const canApprove = view === "success" && evaluation.eligible && !approved;` to `const canApprove = view === "success" && !approved;`. The cross-ticket-citation browser test should fail because approval becomes enabled.
+The current test suite contains:
 
-## Deterministic evaluation: scope and next steps
+| Test area | Tests |
+|---|---:|
+| Structural evaluation | Included in unit suite |
+| Semantic evaluation | Included in unit suite |
+| Combined release-gate evaluation | Included in unit suite |
+| Total unit tests | 22 |
+| Playwright E2E tests | 5 |
+| Total automated tests | 27 |
 
-The current checks establish basic eligibility invariants and a simple privacy-risk guard; they are not an LLM quality benchmark. Against a live model, I would separately test:
-- semantic support: each material claim is entailed by the cited messages;
-- omission and contradiction rates against human-reviewed reference summaries;
-- hallucination, uncertainty handling, and correct abstention on insufficient evidence;
-- prompt injection in ticket content and cross-ticket data leakage;
-- PII detection with a broader classifier/rule set and approved redaction policy;
-- model/version drift across a curated, de-identified evaluation set, with thresholds and human review for borderline cases.
+These are the results from the current local test suite. The CI workflow also runs the unit tests, production build and browser tests independently.
 
-I would also add API contract/schema validation at the service adapter and accessibility checks for the approval workflow.
+## What the Release Gate Validates
 
-## AI tooling and verification
+The application evaluates a summary before allowing approval.
 
-AI assistance may be used to scaffold repetitive project structure and test cases. The important verification is executable: inspect the generated code, run the unit suite, production build, and browser tests locally, and deliberately introduce the regressions above to confirm the expected tests fail. No AI-generated result is treated as evidence until these checks pass.
+### 1. Structural validation
+
+The structural evaluator checks that:
+
+- The summary is not empty.
+- At least one source citation is provided.
+- Source IDs have a valid format.
+- Duplicate citations are rejected.
+- Every citation belongs to the current ticket.
+- Email addresses and phone-like information are flagged.
+
+### 2. Semantic validation
+
+The semantic evaluator checks selected claims against the messages cited by the summary.
+
+It currently uses deterministic rules for known scenarios, including reset-link expiration, payment gateway outages, account lockouts and repeated failed login attempts.
+
+These rules demonstrate how unsupported claims can be caught before approval. They are not a general-purpose hallucination detector or a substitute for evaluating a real language model.
+
+### 3. Combined release-gate decision
+
+The release-gate evaluator combines structural and semantic results.
+
+A summary is eligible for approval only when it passes the required checks. Otherwise, the application displays the validation reasons and keeps approval disabled.
+
+## Test Design
+
+I kept the browser tests independent of an external AI service.
+
+Playwright intercepts:
+
+```text
+POST /api/tickets/T-100/summary
+```
+
+The tests provide controlled responses for:
+
+- Successful summary generation.
+- Insufficient information.
+- Service unavailable (503) followed by retry.
+- Invalid or cross-ticket citations.
+- Semantically unsupported claims.
+
+The browser tests cover the user-visible workflow, while Vitest tests the evaluation functions and their combined release-gate behavior.
+
+Each Playwright test uses its own browser context and route handler to avoid shared test state.
+
+## CI Pipeline and Release-Blocking Criteria
+
+GitHub Actions runs the quality gate on pull requests, pushes to `main` and manual workflow dispatch.
+
+The workflow executes:
+
+1. Dependency installation using `npm ci`.
+2. Structural, semantic and release-gate unit tests.
+3. TypeScript compilation and production build.
+4. Playwright browser tests.
+5. Upload of Playwright test evidence.
+
+The required GitHub Actions check is:
+
+```text
+AI Quality Release Gate / AI Summary Quality Gate
+```
+
+A pull request must pass the required check before it can be merged into the protected `main` branch.
+
+The release is blocked if:
+
+- Any required unit test fails.
+- The production build fails.
+- Any required Playwright release test fails.
+
+Playwright reports and available test evidence are retained as workflow artifacts for troubleshooting.
+
+## Intentional Regression Test
+
+I also tested whether the release gate could catch a deliberately introduced defect.
+
+The scenario was simple: a summary contained a citation from another ticket, but the evaluator was temporarily changed to accept it.
+
+In `src/summaryRules.ts`, I disabled the ticket-ownership validation:
+
+```typescript
+// INTENTIONAL REGRESSION
+if (false) {
+  reasons.push(
+    "One or more citations do not belong to this ticket."
+  );
+}
+```
+
+I then ran:
+
+```bash
+npm run test:unit
+```
+
+### Observed result
+
+```text
+Test Files  2 failed | 1 passed (3)
+Tests       4 failed | 18 passed (22)
+```
+
+The failures included:
+
+- Rejecting citations belonging to another ticket.
+- Reporting multiple validation failures together.
+- Blocking summaries with invalid citations in the combined release gate.
+- Combining structural and semantic failures correctly.
+
+I committed the intentional change on a separate feature branch and opened a pull request.
+
+GitHub Actions detected the failures, and the required status check prevented the pull request from being merged.
+
+After restoring the original ticket-ownership validation, the local unit tests passed again.
+
+This exercise helped verify that the release gate was actually enforcing the intended quality rule rather than simply reporting a successful pipeline.
+
+**Note:** The regression is documented for demonstration purposes. The normal application must retain the original ownership validation.
+
+## Limitations and What I Would Add Next
+
+The current project uses synthetic ticket data and a mocked AI service. Its deterministic rules cover selected scenarios, not every possible quality issue in generated text.
+
+If I extended this into a production-oriented solution, I would work on:
+
+1. **Broader semantic evaluation:** Check whether each important summary claim is supported by its cited messages, using a larger evaluation dataset and human-reviewed examples.
+2. **Hallucination and omission testing:** Measure unsupported claims, missing information and contradictions.
+3. **Prompt-injection testing:** Check how the system handles malicious instructions embedded in ticket messages.
+4. **Privacy validation:** Improve PII detection and introduce an explicit redaction policy.
+5. **API contract validation:** Validate request and response schemas at the service boundary.
+6. **Model regression testing:** Compare model versions against a curated evaluation dataset and track changes in quality.
+7. **Accessibility testing:** Add automated checks for the approval workflow and keyboard navigation.
+8. **Production observability:** Capture evaluation results, failure categories and trends across releases.
+
+I would introduce these incrementally, keeping the release-blocking criteria measurable and repeatable.
+
+## AI Tools and Verification
+
+I used codex during development to discuss the project structure, refine evaluation scenarios, review test coverage, troubleshoot implementation issues and configure the GitHub Actions workflow.
+
+I reviewed the suggested changes and applied them to the project rather than treating generated code as automatically correct.
+
+I verified the implementation by running the unit tests, production build and Playwright tests locally. I also introduced an intentional citation-ownership regression and confirmed that the unit tests and GitHub Actions pipeline detected it.
+
+The final verification was based on actual test execution and CI results, not on AI-generated explanations alone.
+
+## Project Repository
+
+[GitHub - AI Quality Assurance Release Gate](https://github.com/jitsinghsdet/ai-quality-assurance-gate)
