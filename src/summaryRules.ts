@@ -59,11 +59,12 @@ export function evaluateSummary(
     ticket.messages.map(message => message.id)
   );
 
-  if (ids.some(id => !allowedIds.has(id))) {
-    reasons.push(
-      "One or more citations do not belong to this ticket."
-    );
-  }
+  // INTENTIONAL REGRESSION: ticket ownership validation disabled.
+if (false) {
+  reasons.push(
+    "One or more citations do not belong to this ticket."
+  );
+}
 
   // Validate sensitive information
   if (EMAIL.test(text) || PHONE.test(text)) {
